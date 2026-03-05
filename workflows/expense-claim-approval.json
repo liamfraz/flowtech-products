@@ -1,0 +1,196 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_an_item_is_created": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['sharepointonline']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('ExpenseClaimsListId'))}/onnewitems"
+        },
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 3
+        },
+        "splitOn": "@triggerBody()?['value']"
+      }
+    },
+    "actions": {
+      "Initialize_ApprovalStatus": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "ApprovalStatus",
+              "type": "string",
+              "value": "Pending"
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Try_Process_Claim": {
+        "type": "Scope",
+        "actions": {
+          "Get_Claimant_Details": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['office365users']['connectionId']"
+                }
+              },
+              "method": "get",
+              "path": "/users/@{triggerBody()?['ClaimantEmail']}"
+            },
+            "runAfter": {}
+          },
+          "Start_Approval": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['approvals']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/v2/approvals",
+              "body": {
+                "title": "Expense Claim: @{triggerBody()?['Title']} - $@{triggerBody()?['TotalAmount']}",
+                "assignedTo": "@{triggerBody()?['ApproverEmail']}",
+                "details": "**Claimant:** @{body('Get_Claimant_Details')?['displayName']}\n**Amount:** $@{triggerBody()?['TotalAmount']}\n**Category:** @{triggerBody()?['Category']}\n**Description:** @{triggerBody()?['Description']}",
+                "itemLink": "@{triggerBody()?['{Link}']}"
+              }
+            },
+            "runAfter": {
+              "Get_Claimant_Details": ["Succeeded"]
+            }
+          },
+          "Set_Approval_Status": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "ApprovalStatus",
+              "value": "@body('Start_Approval')?['outcome']"
+            },
+            "runAfter": {
+              "Start_Approval": ["Succeeded"]
+            }
+          },
+          "Update_SharePoint_Item": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['sharepointonline']['connectionId']"
+                }
+              },
+              "method": "patch",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('ExpenseClaimsListId'))}/items/@{triggerBody()?['ID']}",
+              "body": {
+                "Status": "@{variables('ApprovalStatus')}",
+                "ApprovedDate": "@{if(equals(variables('ApprovalStatus'),'Approve'),utcNow(),null)}",
+                "ApproverComments": "@{body('Start_Approval')?['comments']}"
+              }
+            },
+            "runAfter": {
+              "Set_Approval_Status": ["Succeeded"]
+            }
+          },
+          "Notify_Claimant_Via_Teams": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['teams']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/v1.0/users/@{triggerBody()?['ClaimantEmail']}/messages",
+              "body": {
+                "recipient": {
+                  "userId": "@{triggerBody()?['ClaimantEmail']}"
+                },
+                "messageBody": "Your expense claim **@{triggerBody()?['Title']}** for **$@{triggerBody()?['TotalAmount']}** has been **@{variables('ApprovalStatus')}**.\n\nComments: @{body('Start_Approval')?['comments']}"
+              }
+            },
+            "runAfter": {
+              "Update_SharePoint_Item": ["Succeeded"]
+            }
+          }
+        },
+        "runAfter": {
+          "Initialize_ApprovalStatus": ["Succeeded"]
+        }
+      },
+      "Catch_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Send_Error_Notification": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['teams']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/v1.0/chats/messages",
+              "body": {
+                "recipient": {
+                  "userId": "@{parameters('AdminEmail')}"
+                },
+                "messageBody": "Expense Claim Approval Flow FAILED for claim: @{triggerBody()?['Title']}\nError: @{result('Try_Process_Claim')}"
+              }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": {
+          "Try_Process_Claim": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "parameters": {
+      "$connections": {
+        "type": "Object",
+        "defaultValue": {}
+      },
+      "SharePointSiteUrl": {
+        "type": "String",
+        "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite"
+      },
+      "ExpenseClaimsListId": {
+        "type": "String",
+        "defaultValue": "YOUR_LIST_GUID"
+      },
+      "AdminEmail": {
+        "type": "String",
+        "defaultValue": "admin@yourtenant.com"
+      }
+    }
+  },
+  "connectionReferences": {
+    "sharepointonline": {
+      "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" },
+      "connection": { "id": "" }
+    },
+    "approvals": {
+      "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_approvals" },
+      "connection": { "id": "" }
+    },
+    "teams": {
+      "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" },
+      "connection": { "id": "" }
+    },
+    "office365users": {
+      "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365users" },
+      "connection": { "id": "" }
+    }
+  }
+}

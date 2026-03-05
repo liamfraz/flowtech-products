@@ -1,0 +1,145 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_new_email_arrives": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+          "method": "get",
+          "path": "/Mail/OnNewEmail",
+          "queries": {
+            "folderPath": "Inbox",
+            "subjectFilter": "RFI",
+            "includeAttachments": true,
+            "importance": "Any"
+          }
+        },
+        "recurrence": { "frequency": "Minute", "interval": 5 },
+        "splitOn": "@triggerBody()?['value']"
+      }
+    },
+    "actions": {
+      "Initialize_RFINumber": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "RFINumber", "type": "string", "value": "RFI-@{formatDateTime(utcNow(),'yyyyMMdd')}-@{rand(100,999)}" }] },
+        "runAfter": {}
+      },
+      "Initialize_AssignedTo": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "AssignedTo", "type": "string", "value": "" }] },
+        "runAfter": {}
+      },
+      "Try_Process_RFI": {
+        "type": "Scope",
+        "actions": {
+          "Parse_Email_Subject": {
+            "type": "Compose",
+            "inputs": {
+              "Subject": "@{triggerBody()?['Subject']}",
+              "From": "@{triggerBody()?['From']}",
+              "ReceivedDate": "@{triggerBody()?['DateTimeReceived']}",
+              "Body": "@{triggerBody()?['BodyPreview']}"
+            },
+            "runAfter": {}
+          },
+          "Determine_Discipline": {
+            "type": "Switch",
+            "expression": "@if(contains(toLower(triggerBody()?['Subject']),'structural'),'Structural',if(contains(toLower(triggerBody()?['Subject']),'electrical'),'Electrical',if(contains(toLower(triggerBody()?['Subject']),'mechanical'),'Mechanical',if(contains(toLower(triggerBody()?['Subject']),'architectural'),'Architectural','General'))))",
+            "cases": {
+              "Structural": { "case": "Structural", "actions": { "Set_Structural": { "type": "SetVariable", "inputs": { "name": "AssignedTo", "value": "@{parameters('StructuralLeadEmail')}" }, "runAfter": {} } } },
+              "Electrical": { "case": "Electrical", "actions": { "Set_Electrical": { "type": "SetVariable", "inputs": { "name": "AssignedTo", "value": "@{parameters('ElectricalLeadEmail')}" }, "runAfter": {} } } },
+              "Mechanical": { "case": "Mechanical", "actions": { "Set_Mechanical": { "type": "SetVariable", "inputs": { "name": "AssignedTo", "value": "@{parameters('MechanicalLeadEmail')}" }, "runAfter": {} } } }
+            },
+            "default": { "actions": { "Set_Default": { "type": "SetVariable", "inputs": { "name": "AssignedTo", "value": "@{parameters('ProjectManagerEmail')}" }, "runAfter": {} } } },
+            "runAfter": { "Parse_Email_Subject": ["Succeeded"] }
+          },
+          "Create_RFI_Item": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('RFIListId'))}/items",
+              "body": {
+                "Title": "@{variables('RFINumber')}",
+                "Subject": "@{triggerBody()?['Subject']}",
+                "Description": "@{triggerBody()?['Body']}",
+                "From0": "@{triggerBody()?['From']}",
+                "AssignedTo": "@{variables('AssignedTo')}",
+                "Status": "Open",
+                "DueDate": "@{addDays(utcNow(),7)}",
+                "ReceivedDate": "@{triggerBody()?['DateTimeReceived']}",
+                "Priority": "Normal"
+              }
+            },
+            "runAfter": { "Determine_Discipline": ["Succeeded"] }
+          },
+          "Save_Attachments": {
+            "type": "Foreach",
+            "foreach": "@triggerBody()?['Attachments']",
+            "actions": {
+              "Upload_Attachment": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+                  "method": "post",
+                  "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/files",
+                  "body": "@base64ToBinary(items('Save_Attachments')?['ContentBytes'])",
+                  "headers": { "ReadFileData": "/RFI/@{variables('RFINumber')}/@{items('Save_Attachments')?['Name']}" }
+                },
+                "runAfter": {}
+              }
+            },
+            "runAfter": { "Create_RFI_Item": ["Succeeded"] }
+          },
+          "Notify_Assignee": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+              "method": "post",
+              "path": "/v1.0/users/@{variables('AssignedTo')}/messages",
+              "body": {
+                "recipient": { "userId": "@{variables('AssignedTo')}" },
+                "messageBody": "New RFI assigned to you: **@{variables('RFINumber')}**\n\nSubject: @{triggerBody()?['Subject']}\nFrom: @{triggerBody()?['From']}\nDue: @{formatDateTime(addDays(utcNow(),7),'dd/MM/yyyy')}\n\nPlease review and respond within 7 days."
+              }
+            },
+            "runAfter": { "Save_Attachments": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_RFINumber": ["Succeeded"], "Initialize_AssignedTo": ["Succeeded"] }
+      },
+      "Catch_RFI_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Alert_Admin_RFI_Failure": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": { "To": "@{parameters('AdminEmail')}", "Subject": "RFI Processor Flow Failed - @{variables('RFINumber')}", "Body": "Failed to process RFI from @{triggerBody()?['From']}.\n@{result('Try_Process_RFI')}" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Process_RFI": ["Failed", "TimedOut"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "RFIListId": { "type": "String", "defaultValue": "YOUR_LIST_GUID" },
+      "ProjectManagerEmail": { "type": "String", "defaultValue": "pm@yourtenant.com" },
+      "StructuralLeadEmail": { "type": "String", "defaultValue": "structural@yourtenant.com" },
+      "ElectricalLeadEmail": { "type": "String", "defaultValue": "electrical@yourtenant.com" },
+      "MechanicalLeadEmail": { "type": "String", "defaultValue": "mechanical@yourtenant.com" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } },
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "teams": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" }, "connection": { "id": "" } }
+  }
+}

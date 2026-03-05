@@ -1,0 +1,109 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "Recurrence_Friday_2PM": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Week",
+          "interval": 1,
+          "schedule": { "weekDays": ["Friday"], "hours": ["14"], "minutes": [0] },
+          "timeZone": "AUS Eastern Standard Time"
+        }
+      }
+    },
+    "actions": {
+      "Try_Send_Reminders": {
+        "type": "Scope",
+        "actions": {
+          "Get_Team_Members": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+              "method": "get",
+              "path": "/v1.0/groups/@{parameters('TeamGroupId')}/members"
+            },
+            "runAfter": {}
+          },
+          "Get_Submitted_Timesheets": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('TimesheetListId'))}/items",
+              "queries": { "$filter": "WeekEnding eq '@{formatDateTime(addDays(utcNow(), sub(7, dayOfWeek(utcNow()))),'yyyy-MM-dd')}'" }
+            },
+            "runAfter": {}
+          },
+          "Apply_to_each_Member": {
+            "type": "Foreach",
+            "foreach": "@body('Get_Team_Members')?['value']",
+            "actions": {
+              "Check_If_Timesheet_Submitted": {
+                "type": "Compose",
+                "inputs": "@contains(join(body('Get_Submitted_Timesheets')?['value'], ','), items('Apply_to_each_Member')?['mail'])",
+                "runAfter": {}
+              },
+              "Condition_Not_Submitted": {
+                "type": "If",
+                "expression": { "and": [{ "equals": ["@outputs('Check_If_Timesheet_Submitted')", false] }] },
+                "actions": {
+                  "Post_Adaptive_Card": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                      "method": "post",
+                      "path": "/v1.0/users/@{items('Apply_to_each_Member')?['mail']}/messages",
+                      "body": {
+                        "recipient": { "userId": "@{items('Apply_to_each_Member')?['mail']}" },
+                        "messageBody": "{ \"type\": \"AdaptiveCard\", \"$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\", \"version\": \"1.4\", \"body\": [{ \"type\": \"TextBlock\", \"text\": \"Timesheet Reminder\", \"weight\": \"Bolder\", \"size\": \"Large\" }, { \"type\": \"TextBlock\", \"text\": \"Hi @{items('Apply_to_each_Member')?['displayName']}, your timesheet for this week hasn't been submitted yet. Please submit it before end of day.\", \"wrap\": true }, { \"type\": \"TextBlock\", \"text\": \"Week ending: @{formatDateTime(addDays(utcNow(), sub(7, dayOfWeek(utcNow()))),'dd/MM/yyyy')}\", \"weight\": \"Bolder\" }], \"actions\": [{ \"type\": \"Action.OpenUrl\", \"title\": \"Submit Timesheet\", \"url\": \"@{parameters('TimesheetFormUrl')}\" }] }"
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                },
+                "else": { "actions": {} },
+                "runAfter": { "Check_If_Timesheet_Submitted": ["Succeeded"] }
+              }
+            },
+            "runAfter": {
+              "Get_Team_Members": ["Succeeded"],
+              "Get_Submitted_Timesheets": ["Succeeded"]
+            }
+          }
+        },
+        "runAfter": {}
+      },
+      "Catch_Reminder_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Alert_Admin": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": { "To": "@{parameters('AdminEmail')}", "Subject": "Timesheet Reminder Flow Failed", "Body": "The weekly timesheet reminder flow failed.\n@{result('Try_Send_Reminders')}" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Send_Reminders": ["Failed", "TimedOut"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "TeamGroupId": { "type": "String", "defaultValue": "YOUR_TEAM_GROUP_ID" },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "TimesheetListId": { "type": "String", "defaultValue": "YOUR_LIST_GUID" },
+      "TimesheetFormUrl": { "type": "String", "defaultValue": "https://forms.office.com/YOUR_FORM" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "teams": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "Manually_trigger_a_flow": {
+        "type": "Request",
+        "kind": "Button",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "ProjectName": { "type": "string", "title": "Project Name" },
+              "ProjectID": { "type": "string", "title": "Project ID" }
+            },
+            "required": ["ProjectName", "ProjectID"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_ChecklistResults": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "ChecklistResults", "type": "array", "value": [] }] },
+        "runAfter": {}
+      },
+      "Initialize_AllPassed": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "AllPassed", "type": "boolean", "value": true }] },
+        "runAfter": {}
+      },
+      "Try_Run_Checklist": {
+        "type": "Scope",
+        "actions": {
+          "Check_Outstanding_RFIs": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('RFIListId'))}/items",
+              "queries": { "$filter": "ProjectID eq '@{triggerBody()?['ProjectID']}' and Status ne 'Closed'" }
+            },
+            "runAfter": {}
+          },
+          "Check_Outstanding_Variations": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('VariationListId'))}/items",
+              "queries": { "$filter": "ProjectID eq '@{triggerBody()?['ProjectID']}' and Status ne 'Approved' and Status ne 'Rejected'" }
+            },
+            "runAfter": {}
+          },
+          "Check_Unpaid_Claims": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('PaymentClaimsListId'))}/items",
+              "queries": { "$filter": "ProjectID eq '@{triggerBody()?['ProjectID']}' and Status eq 'Pending'" }
+            },
+            "runAfter": {}
+          },
+          "Check_Defects_Register": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('DefectsListId'))}/items",
+              "queries": { "$filter": "ProjectID eq '@{triggerBody()?['ProjectID']}' and Status ne 'Rectified'" }
+            },
+            "runAfter": {}
+          },
+          "Check_Safety_Incidents_Open": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('IncidentListId'))}/items",
+              "queries": { "$filter": "ProjectID eq '@{triggerBody()?['ProjectID']}' and Status eq 'Open'" }
+            },
+            "runAfter": {}
+          },
+          "Build_Checklist_Results": {
+            "type": "Compose",
+            "inputs": [
+              { "Item": "Outstanding RFIs", "Count": "@{length(body('Check_Outstanding_RFIs')?['value'])}", "Status": "@{if(equals(length(body('Check_Outstanding_RFIs')?['value']),0),'PASS','FAIL')}" },
+              { "Item": "Pending Variations", "Count": "@{length(body('Check_Outstanding_Variations')?['value'])}", "Status": "@{if(equals(length(body('Check_Outstanding_Variations')?['value']),0),'PASS','FAIL')}" },
+              { "Item": "Unpaid Claims", "Count": "@{length(body('Check_Unpaid_Claims')?['value'])}", "Status": "@{if(equals(length(body('Check_Unpaid_Claims')?['value']),0),'PASS','FAIL')}" },
+              { "Item": "Outstanding Defects", "Count": "@{length(body('Check_Defects_Register')?['value'])}", "Status": "@{if(equals(length(body('Check_Defects_Register')?['value']),0),'PASS','FAIL')}" },
+              { "Item": "Open Safety Incidents", "Count": "@{length(body('Check_Safety_Incidents_Open')?['value'])}", "Status": "@{if(equals(length(body('Check_Safety_Incidents_Open')?['value']),0),'PASS','FAIL')}" }
+            ],
+            "runAfter": {
+              "Check_Outstanding_RFIs": ["Succeeded"],
+              "Check_Outstanding_Variations": ["Succeeded"],
+              "Check_Unpaid_Claims": ["Succeeded"],
+              "Check_Defects_Register": ["Succeeded"],
+              "Check_Safety_Incidents_Open": ["Succeeded"]
+            }
+          },
+          "Create_HTML_Report": {
+            "type": "Compose",
+            "inputs": "<html><body><h1>Project Completion Checklist</h1><h2>@{triggerBody()?['ProjectName']} (@{triggerBody()?['ProjectID']})</h2><p>Generated: @{formatDateTime(utcNow(),'dd/MM/yyyy HH:mm')}</p><table border='1' cellpadding='8' style='border-collapse:collapse'><tr style='background:#333;color:#fff'><th>Check Item</th><th>Count</th><th>Status</th></tr>@{join(outputs('Build_Checklist_Results'),'')}</table><h3>Summary</h3><p>@{if(and(equals(length(body('Check_Outstanding_RFIs')?['value']),0),equals(length(body('Check_Outstanding_Variations')?['value']),0),equals(length(body('Check_Unpaid_Claims')?['value']),0),equals(length(body('Check_Defects_Register')?['value']),0),equals(length(body('Check_Safety_Incidents_Open')?['value']),0)),'ALL CHECKS PASSED - Project is ready for completion.','OUTSTANDING ITEMS REMAIN - See details above.')}</p></body></html>",
+            "runAfter": { "Build_Checklist_Results": ["Succeeded"] }
+          },
+          "Save_Report_to_SharePoint": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/files",
+              "body": "@{outputs('Create_HTML_Report')}",
+              "headers": { "ReadFileData": "/Project Completion/@{triggerBody()?['ProjectID']}-completion-checklist-@{formatDateTime(utcNow(),'yyyyMMdd')}.html" }
+            },
+            "runAfter": { "Create_HTML_Report": ["Succeeded"] }
+          },
+          "Email_Report": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": {
+                "To": "@{parameters('ProjectManagerEmail')};@{parameters('DirectorEmail')}",
+                "Subject": "Project Completion Checklist - @{triggerBody()?['ProjectName']}",
+                "Body": "@{outputs('Create_HTML_Report')}",
+                "IsHtml": true
+              }
+            },
+            "runAfter": { "Save_Report_to_SharePoint": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_ChecklistResults": ["Succeeded"], "Initialize_AllPassed": ["Succeeded"] }
+      },
+      "Catch_Checklist_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Alert_Checklist_Failure": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": { "To": "@{parameters('AdminEmail')}", "Subject": "Completion Checklist Flow Failed - @{triggerBody()?['ProjectName']}", "Body": "@{result('Try_Run_Checklist')}" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Run_Checklist": ["Failed", "TimedOut"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "RFIListId": { "type": "String", "defaultValue": "YOUR_RFI_LIST_GUID" },
+      "VariationListId": { "type": "String", "defaultValue": "YOUR_VAR_LIST_GUID" },
+      "PaymentClaimsListId": { "type": "String", "defaultValue": "YOUR_CLAIMS_LIST_GUID" },
+      "DefectsListId": { "type": "String", "defaultValue": "YOUR_DEFECTS_LIST_GUID" },
+      "IncidentListId": { "type": "String", "defaultValue": "YOUR_INCIDENT_LIST_GUID" },
+      "ProjectManagerEmail": { "type": "String", "defaultValue": "pm@yourtenant.com" },
+      "DirectorEmail": { "type": "String", "defaultValue": "director@yourtenant.com" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } }
+  }
+}

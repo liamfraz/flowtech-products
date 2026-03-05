@@ -1,0 +1,155 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_claim_is_submitted": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+          "method": "get",
+          "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('PaymentClaimsListId'))}/onnewitems"
+        },
+        "recurrence": { "frequency": "Minute", "interval": 5 },
+        "splitOn": "@triggerBody()?['value']"
+      }
+    },
+    "actions": {
+      "Initialize_NetAmount": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "NetAmount", "type": "float", "value": 0 }] },
+        "runAfter": {}
+      },
+      "Initialize_GSTAmount": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "GSTAmount", "type": "float", "value": 0 }] },
+        "runAfter": {}
+      },
+      "Try_Process_Payment": {
+        "type": "Scope",
+        "actions": {
+          "Get_Contract_Details": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('ContractsListId'))}/items/@{triggerBody()?['ContractID']}"
+            },
+            "runAfter": {}
+          },
+          "Get_Previous_Claims": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('PaymentClaimsListId'))}/items",
+              "queries": { "$filter": "ContractID eq '@{triggerBody()?['ContractID']}' and Status eq 'Approved' and ID ne @{triggerBody()?['ID']}" }
+            },
+            "runAfter": {}
+          },
+          "Calculate_Amounts": {
+            "type": "Compose",
+            "inputs": {
+              "ClaimedAmount": "@{float(triggerBody()?['ClaimedAmount'])}",
+              "RetentionRate": "@{float(body('Get_Contract_Details')?['RetentionPercentage'])}",
+              "RetentionAmount": "@{mul(float(triggerBody()?['ClaimedAmount']), div(float(body('Get_Contract_Details')?['RetentionPercentage']),100))}",
+              "PreviouslyPaid": "@{if(equals(length(body('Get_Previous_Claims')?['value']),0),0,sum(body('Get_Previous_Claims')?['value'],'ApprovedAmount'))}",
+              "ContractTotal": "@{float(body('Get_Contract_Details')?['ContractValue'])}",
+              "RemainingBalance": "@{sub(float(body('Get_Contract_Details')?['ContractValue']),add(float(triggerBody()?['ClaimedAmount']),if(equals(length(body('Get_Previous_Claims')?['value']),0),0,sum(body('Get_Previous_Claims')?['value'],'ApprovedAmount'))))}"
+            },
+            "runAfter": { "Get_Contract_Details": ["Succeeded"], "Get_Previous_Claims": ["Succeeded"] }
+          },
+          "Set_Net_Amount": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "NetAmount",
+              "value": "@sub(float(triggerBody()?['ClaimedAmount']),mul(float(triggerBody()?['ClaimedAmount']),div(float(body('Get_Contract_Details')?['RetentionPercentage']),100)))"
+            },
+            "runAfter": { "Calculate_Amounts": ["Succeeded"] }
+          },
+          "Set_GST": {
+            "type": "SetVariable",
+            "inputs": { "name": "GSTAmount", "value": "@mul(variables('NetAmount'),0.1)" },
+            "runAfter": { "Set_Net_Amount": ["Succeeded"] }
+          },
+          "Start_Payment_Approval": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['approvals']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/approvals",
+              "body": {
+                "title": "Subcontractor Payment: @{triggerBody()?['SubcontractorName']} - $@{variables('NetAmount')}",
+                "assignedTo": "@{parameters('ProjectManagerEmail')};@{parameters('FinanceManagerEmail')}",
+                "details": "**Subcontractor:** @{triggerBody()?['SubcontractorName']}\n**Claim #:** @{triggerBody()?['Title']}\n**Claimed:** $@{triggerBody()?['ClaimedAmount']}\n**Retention (@{body('Get_Contract_Details')?['RetentionPercentage']}%):** $@{outputs('Calculate_Amounts')?['RetentionAmount']}\n**Net Payable:** $@{variables('NetAmount')}\n**GST (10%):** $@{variables('GSTAmount')}\n**Total inc GST:** $@{add(variables('NetAmount'),variables('GSTAmount'))}\n\n**Contract Value:** $@{body('Get_Contract_Details')?['ContractValue']}\n**Previously Paid:** $@{outputs('Calculate_Amounts')?['PreviouslyPaid']}\n**Remaining:** $@{outputs('Calculate_Amounts')?['RemainingBalance']}",
+                "enableNotifications": true
+              }
+            },
+            "runAfter": { "Set_GST": ["Succeeded"] }
+          },
+          "Update_Claim_Status": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "patch",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('PaymentClaimsListId'))}/items/@{triggerBody()?['ID']}",
+              "body": {
+                "Status": "@{if(equals(body('Start_Payment_Approval')?['outcome'],'Approve'),'Approved','Rejected')}",
+                "ApprovedAmount": "@{if(equals(body('Start_Payment_Approval')?['outcome'],'Approve'),variables('NetAmount'),0)}",
+                "GSTAmount": "@{if(equals(body('Start_Payment_Approval')?['outcome'],'Approve'),variables('GSTAmount'),0)}",
+                "ApprovalComments": "@{body('Start_Payment_Approval')?['comments']}",
+                "ProcessedDate": "@{utcNow()}"
+              }
+            },
+            "runAfter": { "Start_Payment_Approval": ["Succeeded"] }
+          },
+          "Notify_Subcontractor": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": {
+                "To": "@{triggerBody()?['SubcontractorEmail']}",
+                "Subject": "Payment Claim @{triggerBody()?['Title']} - @{if(equals(body('Start_Payment_Approval')?['outcome'],'Approve'),'Approved','Not Approved')}",
+                "Body": "<p>Dear @{triggerBody()?['SubcontractorName']},</p><p>Your payment claim @{triggerBody()?['Title']} has been <strong>@{if(equals(body('Start_Payment_Approval')?['outcome'],'Approve'),'approved','not approved')}</strong>.</p><p>@{if(equals(body('Start_Payment_Approval')?['outcome'],'Approve'),concat('Approved amount: $',string(variables('NetAmount')),' + GST $',string(variables('GSTAmount'))),'Please contact the project manager for details.')}</p>"
+              }
+            },
+            "runAfter": { "Update_Claim_Status": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_NetAmount": ["Succeeded"], "Initialize_GSTAmount": ["Succeeded"] }
+      },
+      "Catch_Payment_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Alert_Payment_Failure": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": { "To": "@{parameters('AdminEmail')}", "Subject": "Payment Tracker Failed - @{triggerBody()?['Title']}", "Body": "Failed to process payment claim for @{triggerBody()?['SubcontractorName']}.\n@{result('Try_Process_Payment')}", "Importance": "High" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Process_Payment": ["Failed", "TimedOut"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "PaymentClaimsListId": { "type": "String", "defaultValue": "YOUR_LIST_GUID" },
+      "ContractsListId": { "type": "String", "defaultValue": "YOUR_CONTRACTS_LIST_GUID" },
+      "ProjectManagerEmail": { "type": "String", "defaultValue": "pm@yourtenant.com" },
+      "FinanceManagerEmail": { "type": "String", "defaultValue": "finance@yourtenant.com" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "approvals": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_approvals" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } }
+  }
+}

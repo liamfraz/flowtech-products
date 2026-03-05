@@ -1,0 +1,179 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_new_response_is_submitted": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": { "connection": { "name": "@parameters('$connections')['microsoftforms']['connectionId']" } },
+          "method": "get",
+          "path": "/trigger/forms/@{parameters('VariationFormId')}/responses"
+        },
+        "splitOn": "@triggerBody()?['value']"
+      }
+    },
+    "actions": {
+      "Initialize_VariationNumber": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "VarNumber", "type": "string", "value": "VAR-@{formatDateTime(utcNow(),'yyyyMMdd')}-@{rand(100,999)}" }] },
+        "runAfter": {}
+      },
+      "Initialize_ApprovalStage": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "ApprovalStage", "type": "string", "value": "Stage1" }] },
+        "runAfter": {}
+      },
+      "Get_Form_Details": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": { "connection": { "name": "@parameters('$connections')['microsoftforms']['connectionId']" } },
+          "method": "get",
+          "path": "/forms/@{parameters('VariationFormId')}/responses/@{triggerBody()?['resourceData']?['responseId']}"
+        },
+        "runAfter": { "Initialize_VariationNumber": ["Succeeded"], "Initialize_ApprovalStage": ["Succeeded"] }
+      },
+      "Try_Process_Variation": {
+        "type": "Scope",
+        "actions": {
+          "Create_Variation_Record": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('VariationListId'))}/items",
+              "body": {
+                "Title": "@{variables('VarNumber')}",
+                "Description": "@{body('Get_Form_Details')?['answers']?[0]?['answer']}",
+                "Reason": "@{body('Get_Form_Details')?['answers']?[1]?['answer']}",
+                "EstimatedCost": "@{body('Get_Form_Details')?['answers']?[2]?['answer']}",
+                "ImpactDays": "@{body('Get_Form_Details')?['answers']?[3]?['answer']}",
+                "RequestedBy": "@{body('Get_Form_Details')?['answers']?[4]?['answer']}",
+                "ProjectName": "@{body('Get_Form_Details')?['answers']?[5]?['answer']}",
+                "Status": "Stage 1 - PM Review",
+                "DateSubmitted": "@{utcNow()}"
+              }
+            },
+            "runAfter": {}
+          },
+          "Stage1_PM_Approval": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['approvals']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/approvals",
+              "body": {
+                "title": "Variation Request (Stage 1 - PM): @{variables('VarNumber')}",
+                "assignedTo": "@{parameters('ProjectManagerEmail')}",
+                "details": "**Variation:** @{variables('VarNumber')}\n**Description:** @{body('Get_Form_Details')?['answers']?[0]?['answer']}\n**Estimated Cost:** $@{body('Get_Form_Details')?['answers']?[2]?['answer']}\n**Schedule Impact:** @{body('Get_Form_Details')?['answers']?[3]?['answer']} days\n**Requested By:** @{body('Get_Form_Details')?['answers']?[4]?['answer']}"
+              }
+            },
+            "runAfter": { "Create_Variation_Record": ["Succeeded"] }
+          },
+          "Check_Stage1_Result": {
+            "type": "If",
+            "expression": { "and": [{ "equals": ["@body('Stage1_PM_Approval')?['outcome']", "Approve"] }] },
+            "actions": {
+              "Update_Status_Stage2": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+                  "method": "patch",
+                  "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('VariationListId'))}/items/@{body('Create_Variation_Record')?['ID']}",
+                  "body": { "Status": "Stage 2 - Director Review", "PMComments": "@{body('Stage1_PM_Approval')?['comments']}" }
+                },
+                "runAfter": {}
+              },
+              "Stage2_Director_Approval": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": { "connection": { "name": "@parameters('$connections')['approvals']['connectionId']" } },
+                  "method": "post",
+                  "path": "/v2/approvals",
+                  "body": {
+                    "title": "Variation Request (Stage 2 - Director): @{variables('VarNumber')}",
+                    "assignedTo": "@{parameters('DirectorEmail')}",
+                    "details": "**PM Approved.** Comments: @{body('Stage1_PM_Approval')?['comments']}\n\n**Variation:** @{variables('VarNumber')}\n**Cost:** $@{body('Get_Form_Details')?['answers']?[2]?['answer']}\n**Impact:** @{body('Get_Form_Details')?['answers']?[3]?['answer']} days"
+                  }
+                },
+                "runAfter": { "Update_Status_Stage2": ["Succeeded"] }
+              },
+              "Update_Final_Status": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+                  "method": "patch",
+                  "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('VariationListId'))}/items/@{body('Create_Variation_Record')?['ID']}",
+                  "body": {
+                    "Status": "@{if(equals(body('Stage2_Director_Approval')?['outcome'],'Approve'),'Approved','Rejected - Director')}",
+                    "DirectorComments": "@{body('Stage2_Director_Approval')?['comments']}",
+                    "CompletedDate": "@{utcNow()}"
+                  }
+                },
+                "runAfter": { "Stage2_Director_Approval": ["Succeeded"] }
+              }
+            },
+            "else": {
+              "actions": {
+                "Update_Rejected_Stage1": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+                    "method": "patch",
+                    "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('VariationListId'))}/items/@{body('Create_Variation_Record')?['ID']}",
+                    "body": { "Status": "Rejected - PM", "PMComments": "@{body('Stage1_PM_Approval')?['comments']}", "CompletedDate": "@{utcNow()}" }
+                  },
+                  "runAfter": {}
+                }
+              }
+            },
+            "runAfter": { "Stage1_PM_Approval": ["Succeeded"] }
+          },
+          "Notify_Requestor": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+              "method": "post",
+              "path": "/v1.0/chats/messages",
+              "body": { "recipient": { "userId": "@{body('Get_Form_Details')?['answers']?[4]?['answer']}" }, "messageBody": "Variation @{variables('VarNumber')} has been processed. Check the SharePoint list for the final status." }
+            },
+            "runAfter": { "Check_Stage1_Result": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Get_Form_Details": ["Succeeded"] }
+      },
+      "Catch_Variation_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Alert_Variation_Failure": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": { "To": "@{parameters('AdminEmail')}", "Subject": "Variation Flow Failed - @{variables('VarNumber')}", "Body": "@{result('Try_Process_Variation')}" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Process_Variation": ["Failed", "TimedOut"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "VariationFormId": { "type": "String", "defaultValue": "YOUR_FORM_ID" },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "VariationListId": { "type": "String", "defaultValue": "YOUR_LIST_GUID" },
+      "ProjectManagerEmail": { "type": "String", "defaultValue": "pm@yourtenant.com" },
+      "DirectorEmail": { "type": "String", "defaultValue": "director@yourtenant.com" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "microsoftforms": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_microsoftforms" }, "connection": { "id": "" } },
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "approvals": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_approvals" }, "connection": { "id": "" } },
+    "teams": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } }
+  }
+}

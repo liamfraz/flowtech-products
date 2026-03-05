@@ -1,0 +1,195 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_new_response_is_submitted": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['microsoftforms']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/trigger/forms/@{parameters('POFormId')}/responses"
+        },
+        "splitOn": "@triggerBody()?['value']"
+      }
+    },
+    "actions": {
+      "Initialize_PONumber": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "PONumber",
+              "type": "string",
+              "value": "PO-@{formatDateTime(utcNow(),'yyyyMMdd')}-@{rand(1000,9999)}"
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Get_Form_Response_Details": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['microsoftforms']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/forms/@{parameters('POFormId')}/responses/@{triggerBody()?['resourceData']?['responseId']}"
+        },
+        "runAfter": {
+          "Initialize_PONumber": ["Succeeded"]
+        }
+      },
+      "Try_Generate_PO": {
+        "type": "Scope",
+        "actions": {
+          "Populate_Word_Template": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['wordonlinebusiness']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/api/templates/generateDocument",
+              "body": {
+                "source": "@{parameters('POTemplatePath')}",
+                "properties": {
+                  "PONumber": "@{variables('PONumber')}",
+                  "Date": "@{formatDateTime(utcNow(),'dd/MM/yyyy')}",
+                  "Supplier": "@{body('Get_Form_Response_Details')?['answers']?[0]?['answer']}",
+                  "ProjectName": "@{body('Get_Form_Response_Details')?['answers']?[1]?['answer']}",
+                  "Description": "@{body('Get_Form_Response_Details')?['answers']?[2]?['answer']}",
+                  "Amount": "@{body('Get_Form_Response_Details')?['answers']?[3]?['answer']}",
+                  "RequestedBy": "@{body('Get_Form_Response_Details')?['answers']?[4]?['answer']}"
+                }
+              }
+            },
+            "runAfter": {}
+          },
+          "Create_PO_File_In_SharePoint": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['sharepointonline']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/files",
+              "body": "@body('Populate_Word_Template')",
+              "headers": {
+                "ReadFileData": "@{variables('PONumber')}.docx"
+              }
+            },
+            "runAfter": {
+              "Populate_Word_Template": ["Succeeded"]
+            }
+          },
+          "Send_Approval_Email": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['office365']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": {
+                "To": "@{parameters('ApproverEmail')}",
+                "Subject": "Purchase Order for Approval: @{variables('PONumber')}",
+                "Body": "<h2>Purchase Order: @{variables('PONumber')}</h2><p><strong>Supplier:</strong> @{body('Get_Form_Response_Details')?['answers']?[0]?['answer']}</p><p><strong>Project:</strong> @{body('Get_Form_Response_Details')?['answers']?[1]?['answer']}</p><p><strong>Amount:</strong> $@{body('Get_Form_Response_Details')?['answers']?[3]?['answer']}</p><p>Please review the attached purchase order.</p>",
+                "Attachments": [
+                  {
+                    "Name": "@{variables('PONumber')}.docx",
+                    "ContentBytes": "@{body('Populate_Word_Template')}"
+                  }
+                ],
+                "Importance": "High"
+              }
+            },
+            "runAfter": {
+              "Create_PO_File_In_SharePoint": ["Succeeded"]
+            }
+          },
+          "Create_SharePoint_List_Item": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['sharepointonline']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('POListId'))}/items",
+              "body": {
+                "Title": "@{variables('PONumber')}",
+                "Supplier": "@{body('Get_Form_Response_Details')?['answers']?[0]?['answer']}",
+                "ProjectName": "@{body('Get_Form_Response_Details')?['answers']?[1]?['answer']}",
+                "Amount": "@{body('Get_Form_Response_Details')?['answers']?[3]?['answer']}",
+                "Status": "Pending Approval",
+                "RequestedBy": "@{body('Get_Form_Response_Details')?['answers']?[4]?['answer']}",
+                "DateSubmitted": "@{utcNow()}"
+              }
+            },
+            "runAfter": {
+              "Send_Approval_Email": ["Succeeded"]
+            }
+          }
+        },
+        "runAfter": {
+          "Get_Form_Response_Details": ["Succeeded"]
+        }
+      },
+      "Catch_PO_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Notify_Admin_Of_Failure": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['teams']['connectionId']"
+                }
+              },
+              "method": "post",
+              "path": "/v1.0/chats/messages",
+              "body": {
+                "recipient": { "userId": "@{parameters('AdminEmail')}" },
+                "messageBody": "PO Generation FAILED for @{variables('PONumber')}.\nError: @{result('Try_Generate_PO')}"
+              }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": {
+          "Try_Generate_PO": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "POFormId": { "type": "String", "defaultValue": "YOUR_FORM_ID" },
+      "POTemplatePath": { "type": "String", "defaultValue": "/sites/YourSite/Shared Documents/Templates/PO-Template.docx" },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "POListId": { "type": "String", "defaultValue": "YOUR_PO_LIST_GUID" },
+      "ApproverEmail": { "type": "String", "defaultValue": "approver@yourtenant.com" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "microsoftforms": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_microsoftforms" }, "connection": { "id": "" } },
+    "wordonlinebusiness": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_wordonlinebusiness" }, "connection": { "id": "" } },
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } },
+    "teams": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" }, "connection": { "id": "" } }
+  }
+}

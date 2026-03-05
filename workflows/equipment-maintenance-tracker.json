@@ -1,0 +1,138 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "Recurrence_Daily_7AM": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Day",
+          "interval": 1,
+          "schedule": { "hours": ["7"], "minutes": [0] },
+          "timeZone": "AUS Eastern Standard Time"
+        }
+      }
+    },
+    "actions": {
+      "Initialize_AlertsSent": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [{ "name": "AlertsSent", "type": "integer", "value": 0 }] },
+        "runAfter": {}
+      },
+      "Try_Check_Maintenance": {
+        "type": "Scope",
+        "actions": {
+          "Get_Equipment_List": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('EquipmentListId'))}/items",
+              "queries": { "$filter": "Status ne 'Decommissioned'" }
+            },
+            "runAfter": {}
+          },
+          "Apply_to_each_Equipment": {
+            "type": "Foreach",
+            "foreach": "@body('Get_Equipment_List')?['value']",
+            "actions": {
+              "Calculate_Days_Until_Service": {
+                "type": "Compose",
+                "inputs": "@div(sub(ticks(items('Apply_to_each_Equipment')?['NextServiceDate']),ticks(utcNow())),864000000000)",
+                "runAfter": {}
+              },
+              "Check_If_Service_Due": {
+                "type": "If",
+                "expression": { "or": [
+                  { "lessOrEquals": ["@outputs('Calculate_Days_Until_Service')", 7] },
+                  { "less": ["@outputs('Calculate_Days_Until_Service')", 0] }
+                ]},
+                "actions": {
+                  "Determine_Alert_Type": {
+                    "type": "If",
+                    "expression": { "and": [{ "less": ["@outputs('Calculate_Days_Until_Service')", 0] }] },
+                    "actions": {
+                      "Send_Overdue_Alert": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                          "method": "post",
+                          "path": "/v1.0/teams/@{parameters('TeamGroupId')}/channels/@{parameters('MaintenanceChannelId')}/messages",
+                          "body": { "body": { "content": "OVERDUE: @{items('Apply_to_each_Equipment')?['Title']} (ID: @{items('Apply_to_each_Equipment')?['AssetID']}) maintenance was due @{formatDateTime(items('Apply_to_each_Equipment')?['NextServiceDate'],'dd/MM/yyyy')}. @{abs(outputs('Calculate_Days_Until_Service'))} days overdue. Assigned to: @{items('Apply_to_each_Equipment')?['AssignedTo']}" } }
+                        },
+                        "runAfter": {}
+                      }
+                    },
+                    "else": {
+                      "actions": {
+                        "Send_Upcoming_Alert": {
+                          "type": "ApiConnection",
+                          "inputs": {
+                            "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                            "method": "post",
+                            "path": "/v1.0/teams/@{parameters('TeamGroupId')}/channels/@{parameters('MaintenanceChannelId')}/messages",
+                            "body": { "body": { "content": "UPCOMING: @{items('Apply_to_each_Equipment')?['Title']} (ID: @{items('Apply_to_each_Equipment')?['AssetID']}) service due in @{outputs('Calculate_Days_Until_Service')} days (@{formatDateTime(items('Apply_to_each_Equipment')?['NextServiceDate'],'dd/MM/yyyy')})" } }
+                          },
+                          "runAfter": {}
+                        }
+                      }
+                    },
+                    "runAfter": {}
+                  },
+                  "Increment_AlertsSent": {
+                    "type": "IncrementVariable",
+                    "inputs": { "name": "AlertsSent", "value": 1 },
+                    "runAfter": { "Determine_Alert_Type": ["Succeeded"] }
+                  }
+                },
+                "else": { "actions": {} },
+                "runAfter": { "Calculate_Days_Until_Service": ["Succeeded"] }
+              }
+            },
+            "runAfter": { "Get_Equipment_List": ["Succeeded"] }
+          },
+          "Post_Daily_Summary": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+              "method": "post",
+              "path": "/v1.0/teams/@{parameters('TeamGroupId')}/channels/@{parameters('MaintenanceChannelId')}/messages",
+              "body": { "body": { "content": "Daily Maintenance Summary: @{variables('AlertsSent')} alerts sent. Total equipment tracked: @{length(body('Get_Equipment_List')?['value'])}" } }
+            },
+            "runAfter": { "Apply_to_each_Equipment": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_AlertsSent": ["Succeeded"] }
+      },
+      "Catch_Maintenance_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Email_Error_Report": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": { "To": "@{parameters('AdminEmail')}", "Subject": "Equipment Maintenance Tracker Failed", "Body": "@{result('Try_Check_Maintenance')}" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Check_Maintenance": ["Failed", "TimedOut"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "EquipmentListId": { "type": "String", "defaultValue": "YOUR_LIST_GUID" },
+      "TeamGroupId": { "type": "String", "defaultValue": "YOUR_TEAM_ID" },
+      "MaintenanceChannelId": { "type": "String", "defaultValue": "YOUR_CHANNEL_ID" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "teams": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } }
+  }
+}

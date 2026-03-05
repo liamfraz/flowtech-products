@@ -1,0 +1,128 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "Recurrence_Daily_5PM": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Day",
+          "interval": 1,
+          "schedule": { "hours": ["17"], "minutes": [0] },
+          "timeZone": "AUS Eastern Standard Time"
+        }
+      }
+    },
+    "actions": {
+      "Initialize_ReportDate": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [{ "name": "ReportDate", "type": "string", "value": "@{formatDateTime(utcNow(),'dd/MM/yyyy')}" }]
+        },
+        "runAfter": {}
+      },
+      "Try_Generate_Report": {
+        "type": "Scope",
+        "actions": {
+          "Get_Todays_Form_Responses": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['microsoftforms']['connectionId']" } },
+              "method": "get",
+              "path": "/forms/@{parameters('DailyReportFormId')}/responses",
+              "queries": { "$filter": "submitDate ge @{startOfDay(utcNow())}" }
+            },
+            "runAfter": {}
+          },
+          "Get_Personnel_Log": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('PersonnelLogListId'))}/items",
+              "queries": { "$filter": "Date eq '@{formatDateTime(utcNow(),'yyyy-MM-dd')}'" }
+            },
+            "runAfter": {}
+          },
+          "Compose_Report_HTML": {
+            "type": "Compose",
+            "inputs": "<html><body><h1>Daily Site Report - @{variables('ReportDate')}</h1><h2>Project: @{parameters('ProjectName')}</h2><h3>Personnel On Site</h3><table border='1'>@{join(body('Get_Personnel_Log')?['value'],'')}</table><h3>Work Completed</h3>@{body('Get_Todays_Form_Responses')}<h3>Weather Conditions</h3><p>Refer to form submissions</p><hr/><p>Generated automatically by Power Automate at @{formatDateTime(utcNow(),'HH:mm dd/MM/yyyy')}</p></body></html>",
+            "runAfter": {
+              "Get_Todays_Form_Responses": ["Succeeded"],
+              "Get_Personnel_Log": ["Succeeded"]
+            }
+          },
+          "Convert_HTML_to_PDF": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['encodian']['connectionId']" } },
+              "method": "post",
+              "path": "/api/HtmlToPdf",
+              "body": { "content": "@{outputs('Compose_Report_HTML')}", "fileName": "DailyReport-@{variables('ReportDate')}.pdf" }
+            },
+            "runAfter": { "Compose_Report_HTML": ["Succeeded"] }
+          },
+          "Save_PDF_to_SharePoint": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/files",
+              "body": "@body('Convert_HTML_to_PDF')?['fileContent']",
+              "headers": { "ReadFileData": "/Daily Reports/DailyReport-@{variables('ReportDate')}.pdf" }
+            },
+            "runAfter": { "Convert_HTML_to_PDF": ["Succeeded"] }
+          },
+          "Email_Report_to_PM": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": {
+                "To": "@{parameters('ProjectManagerEmail')}",
+                "Subject": "Daily Site Report - @{parameters('ProjectName')} - @{variables('ReportDate')}",
+                "Body": "<p>Please find today's daily site report attached.</p><p>Personnel count: @{length(body('Get_Personnel_Log')?['value'])}</p>",
+                "Attachments": [{ "Name": "DailyReport-@{variables('ReportDate')}.pdf", "ContentBytes": "@body('Convert_HTML_to_PDF')?['fileContent']" }]
+              }
+            },
+            "runAfter": { "Save_PDF_to_SharePoint": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_ReportDate": ["Succeeded"] }
+      },
+      "Catch_Report_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Send_Failure_Alert": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+              "method": "post",
+              "path": "/v1.0/chats/messages",
+              "body": { "recipient": { "userId": "@{parameters('AdminEmail')}" }, "messageBody": "Daily Site Report generation FAILED for @{variables('ReportDate')}.\n@{result('Try_Generate_Report')}" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Generate_Report": ["Failed", "TimedOut"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "DailyReportFormId": { "type": "String", "defaultValue": "YOUR_FORM_ID" },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "PersonnelLogListId": { "type": "String", "defaultValue": "YOUR_LIST_GUID" },
+      "ProjectName": { "type": "String", "defaultValue": "Your Project Name" },
+      "ProjectManagerEmail": { "type": "String", "defaultValue": "pm@yourtenant.com" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "microsoftforms": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_microsoftforms" }, "connection": { "id": "" } },
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } },
+    "encodian": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_encodian" }, "connection": { "id": "" } },
+    "teams": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" }, "connection": { "id": "" } }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "PowerApps_Trigger": {
+        "type": "Request",
+        "kind": "PowerApp",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "IncidentType": { "type": "string", "description": "Type of incident" },
+              "Description": { "type": "string", "description": "Incident description" },
+              "Location": { "type": "string", "description": "Site location" },
+              "Severity": { "type": "string", "description": "Low/Medium/High/Critical" },
+              "ReporterName": { "type": "string", "description": "Name of person reporting" },
+              "ReporterEmail": { "type": "string", "description": "Email of reporter" },
+              "PhotoBase64": { "type": "string", "description": "Base64 photo of incident" },
+              "ProjectName": { "type": "string", "description": "Project name" }
+            },
+            "required": ["IncidentType", "Description", "Location", "Severity", "ReporterName", "ReporterEmail"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_IncidentNumber": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [{ "name": "IncidentNumber", "type": "string", "value": "INC-@{formatDateTime(utcNow(),'yyyyMMdd')}-@{rand(100,999)}" }]
+        },
+        "runAfter": {}
+      },
+      "Try_Report_Incident": {
+        "type": "Scope",
+        "actions": {
+          "Create_SharePoint_Incident": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/tables/@{encodeURIComponent(parameters('IncidentListId'))}/items",
+              "body": {
+                "Title": "@{variables('IncidentNumber')}",
+                "IncidentType": "@{triggerBody()?['IncidentType']}",
+                "Description": "@{triggerBody()?['Description']}",
+                "Location": "@{triggerBody()?['Location']}",
+                "Severity": "@{triggerBody()?['Severity']}",
+                "ReportedBy": "@{triggerBody()?['ReporterName']}",
+                "ReporterEmail": "@{triggerBody()?['ReporterEmail']}",
+                "ProjectName": "@{triggerBody()?['ProjectName']}",
+                "Status": "Open",
+                "DateReported": "@{utcNow()}"
+              }
+            },
+            "runAfter": {}
+          },
+          "Upload_Photo_If_Provided": {
+            "type": "If",
+            "expression": { "and": [{ "not": { "equals": ["@{triggerBody()?['PhotoBase64']}", ""] } }] },
+            "actions": {
+              "Create_Photo_File": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": { "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionId']" } },
+                  "method": "post",
+                  "path": "/datasets/@{encodeURIComponent(parameters('SharePointSiteUrl'))}/files",
+                  "body": "@base64ToBinary(triggerBody()?['PhotoBase64'])",
+                  "headers": { "ReadFileData": "/Incident Photos/@{variables('IncidentNumber')}.jpg" }
+                },
+                "runAfter": {}
+              }
+            },
+            "else": { "actions": {} },
+            "runAfter": { "Create_SharePoint_Incident": ["Succeeded"] }
+          },
+          "Determine_Notification_Level": {
+            "type": "Switch",
+            "expression": "@triggerBody()?['Severity']",
+            "cases": {
+              "Critical": {
+                "case": "Critical",
+                "actions": {
+                  "Notify_Safety_Manager_Critical": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                      "method": "post",
+                      "path": "/v1.0/chats/messages",
+                      "body": {
+                        "recipient": { "userId": "@{parameters('SafetyOfficerEmail')}" },
+                        "messageBody": "CRITICAL SAFETY INCIDENT\n\nIncident: @{variables('IncidentNumber')}\nType: @{triggerBody()?['IncidentType']}\nLocation: @{triggerBody()?['Location']}\nDescription: @{triggerBody()?['Description']}\nReported by: @{triggerBody()?['ReporterName']}\n\nIMMEDIATE ACTION REQUIRED"
+                      }
+                    },
+                    "runAfter": {}
+                  },
+                  "Send_SMS_Critical": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+                      "method": "post",
+                      "path": "/v2/Mail",
+                      "body": {
+                        "To": "@{parameters('SafetyOfficerEmail')};@{parameters('ProjectDirectorEmail')}",
+                        "Subject": "CRITICAL: @{variables('IncidentNumber')} - @{triggerBody()?['IncidentType']}",
+                        "Body": "<h1 style='color:red'>CRITICAL SAFETY INCIDENT</h1><p><strong>@{triggerBody()?['Description']}</strong></p><p>Location: @{triggerBody()?['Location']}</p>",
+                        "Importance": "High"
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                }
+              },
+              "High": {
+                "case": "High",
+                "actions": {
+                  "Notify_Safety_Manager_High": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                      "method": "post",
+                      "path": "/v1.0/chats/messages",
+                      "body": {
+                        "recipient": { "userId": "@{parameters('SafetyOfficerEmail')}" },
+                        "messageBody": "HIGH PRIORITY Safety Incident\n\n@{variables('IncidentNumber')}: @{triggerBody()?['IncidentType']} at @{triggerBody()?['Location']}\n@{triggerBody()?['Description']}"
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                }
+              }
+            },
+            "default": {
+              "actions": {
+                "Notify_Safety_Officer_Standard": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+                    "method": "post",
+                    "path": "/v2/Mail",
+                    "body": {
+                      "To": "@{parameters('SafetyOfficerEmail')}",
+                      "Subject": "Safety Incident: @{variables('IncidentNumber')} - @{triggerBody()?['IncidentType']}",
+                      "Body": "<p>Incident @{variables('IncidentNumber')} reported at @{triggerBody()?['Location']}</p><p>@{triggerBody()?['Description']}</p>"
+                    }
+                  },
+                  "runAfter": {}
+                }
+              }
+            },
+            "runAfter": { "Upload_Photo_If_Provided": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_IncidentNumber": ["Succeeded"] }
+      },
+      "Catch_Incident_Errors": {
+        "type": "Scope",
+        "actions": {
+          "Log_Error": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": { "To": "@{parameters('AdminEmail')}", "Subject": "Safety Incident Flow FAILED - @{variables('IncidentNumber')}", "Body": "Flow failed. Manual incident logging required.\n@{result('Try_Report_Incident')}" }
+            },
+            "runAfter": {}
+          }
+        },
+        "runAfter": { "Try_Report_Incident": ["Failed", "TimedOut"] }
+      },
+      "Respond_to_PowerApp": {
+        "type": "Response",
+        "inputs": { "statusCode": 200, "body": { "IncidentNumber": "@{variables('IncidentNumber')}", "Status": "Submitted" } },
+        "runAfter": { "Try_Report_Incident": ["Succeeded"] }
+      }
+    },
+    "parameters": {
+      "$connections": { "type": "Object", "defaultValue": {} },
+      "SharePointSiteUrl": { "type": "String", "defaultValue": "https://yourtenant.sharepoint.com/sites/YourSite" },
+      "IncidentListId": { "type": "String", "defaultValue": "YOUR_LIST_GUID" },
+      "SafetyOfficerEmail": { "type": "String", "defaultValue": "safety@yourtenant.com" },
+      "ProjectDirectorEmail": { "type": "String", "defaultValue": "director@yourtenant.com" },
+      "AdminEmail": { "type": "String", "defaultValue": "admin@yourtenant.com" }
+    }
+  },
+  "connectionReferences": {
+    "sharepointonline": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline" }, "connection": { "id": "" } },
+    "teams": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_teams" }, "connection": { "id": "" } },
+    "office365": { "api": { "id": "/providers/Microsoft.PowerApps/apis/shared_office365" }, "connection": { "id": "" } }
+  }
+}
