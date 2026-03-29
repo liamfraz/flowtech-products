@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flowtech Advisory — Construction Automation Templates</title>
+  <meta name="description" content="Ready-to-use Power Automate workflows, Excel dashboards, and automation guides built for construction companies. Import in minutes, no coding required.">
+
+  <!-- OG tags for Product Hunt / social sharing -->
+  <meta property="og:title" content="Flowtech Advisory — Construction Automation Templates">
+  <meta property="og:description" content="10 Power Automate workflows, Excel dashboards, and step-by-step guides built for construction. No code required.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://flowtech-products.vercel.app/launch">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #030712;
+      --surface: #111827;
+      --border: #1f2937;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      --orange: #f97316;
+      --orange-dark: #ea580c;
+      --orange-glow: rgba(249, 115, 22, 0.15);
+      --orange-border: rgba(249, 115, 22, 0.3);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ── NAV ── */
+    .nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+      background: rgba(3, 7, 18, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+    }
+    .nav-inner {
+      max-width: 1200px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-weight: 700; font-size: 1.1rem;
+    }
+    .logo-icon {
+      width: 32px; height: 32px; background: var(--orange);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 800; color: #fff;
+    }
+    .nav-cta {
+      padding: 0.5rem 1.25rem; background: var(--orange); color: #fff;
+      border-radius: 8px; font-weight: 600; font-size: 0.9rem;
+      transition: background 0.2s;
+    }
+    .nav-cta:hover { background: var(--orange-dark); }
+
+    /* ── HERO ── */
+    .hero {
+      padding: 8rem 1.5rem 5rem;
+      text-align: center;
+      background: radial-gradient(ellipse at top, rgba(249, 115, 22, 0.08) 0%, transparent 60%);
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      background: var(--orange-glow); border: 1px solid var(--orange-border);
+      border-radius: 999px; padding: 0.4rem 1rem; margin-bottom: 2rem;
+      font-size: 0.85rem; color: var(--orange);
+    }
+    .hero-badge-dot {
+      width: 8px; height: 8px; background: var(--orange);
+      border-radius: 50%; animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .hero h1 {
+      font-size: clamp(2.2rem, 5vw, 4rem);
+      font-weight: 800; line-height: 1.15; margin-bottom: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+    .hero h1 span { color: var(--orange); }
+    .hero p {
+      font-size: 1.15rem; color: var(--text-muted);
+      max-width: 640px; margin: 0 auto 2.5rem;
+    }
+    .hero-actions {
+      display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;
+    }
+    .btn-primary {
+      padding: 0.85rem 2rem; background: var(--orange); color: #fff;
+      border-radius: 10px; font-weight: 700; font-size: 1.05rem;
+      transition: all 0.2s;
+      box-shadow: 0 4px 24px rgba(249, 115, 22, 0.2);
+    }
+    .btn-primary:hover {
+      background: var(--orange-dark);
+      box-shadow: 0 4px 32px rgba(249, 115, 22, 0.35);
+    }
+    .btn-secondary {
+      padding: 0.85rem 2rem; border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 10px; font-weight: 600;
+      font-size: 1.05rem; transition: border-color 0.2s;
+    }
+    .btn-secondary:hover { border-color: var(--text-dim); }
+
+    /* ── STATS ── */
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem;
+      max-width: 700px; margin: 4rem auto 0; text-align: center;
+    }
+    .stat-value { font-size: 1.75rem; font-weight: 800; color: var(--orange); }
+    .stat-label { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem; }
+
+    /* ── PRODUCTS GRID ── */
+    .section { padding: 5rem 1.5rem; }
+    .section-header { text-align: center; margin-bottom: 3rem; }
+    .section-header h2 {
+      font-size: 2rem; font-weight: 800; margin-bottom: 0.75rem;
+    }
+    .section-header h2 span { color: var(--orange); }
+    .section-header p { color: var(--text-muted); max-width: 560px; margin: 0 auto; }
+
+    .products-grid {
+      max-width: 1200px; margin: 0 auto;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+    .product-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 1.75rem;
+      display: flex; flex-direction: column;
+      transition: border-color 0.25s;
+      position: relative;
+    }
+    .product-card:hover { border-color: var(--orange-border); }
+    .product-badge {
+      position: absolute; top: -10px; right: 16px;
+      background: var(--orange); color: #fff; font-size: 0.75rem;
+      font-weight: 700; padding: 0.25rem 0.75rem; border-radius: 999px;
+    }
+    .product-price {
+      font-size: 1.75rem; font-weight: 800; color: var(--orange);
+      margin-bottom: 0.75rem;
+    }
+    .product-card h3 {
+      font-size: 1.15rem; font-weight: 700; margin-bottom: 0.5rem;
+    }
+    .product-card .desc {
+      font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.25rem;
+      flex-grow: 1;
+    }
+    .feature-list { list-style: none; margin-bottom: 1.5rem; }
+    .feature-list li {
+      font-size: 0.85rem; color: var(--text-muted);
+      padding: 0.3rem 0; padding-left: 1.5rem; position: relative;
+    }
+    .feature-list li::before {
+      content: "\2713"; position: absolute; left: 0;
+      color: var(--orange); font-weight: 700;
+    }
+    .card-btn {
+      display: block; text-align: center;
+      padding: 0.75rem; background: var(--orange); color: #fff;
+      border-radius: 10px; font-weight: 700; font-size: 0.95rem;
+      transition: background 0.2s;
+    }
+    .card-btn:hover { background: var(--orange-dark); }
+
+    /* ── BUNDLE ── */
+    .bundle {
+      max-width: 1000px; margin: 0 auto;
+      background: linear-gradient(135deg, var(--orange-glow), transparent 60%);
+      border: 1px solid var(--orange-border); border-radius: 20px;
+      padding: 3rem; position: relative;
+    }
+    .bundle-badge {
+      position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+      background: var(--orange); color: #fff; font-weight: 800;
+      padding: 0.4rem 1.25rem; border-radius: 999px; font-size: 0.9rem;
+    }
+    .bundle-grid {
+      display: grid; grid-template-columns: 1fr 280px; gap: 2.5rem;
+      align-items: center;
+    }
+    .bundle h3 { font-size: 1.75rem; font-weight: 800; margin-bottom: 0.75rem; }
+    .bundle .desc { color: var(--text-muted); margin-bottom: 1.25rem; }
+    .bundle-right { text-align: center; }
+    .bundle-old-price {
+      font-size: 1.1rem; color: var(--text-dim);
+      text-decoration: line-through; margin-bottom: 0.25rem;
+    }
+    .bundle-price {
+      font-size: 3.5rem; font-weight: 800; color: var(--orange);
+      margin-bottom: 1.5rem;
+    }
+
+    /* ── SOCIAL PROOF ── */
+    .proof { background: rgba(17, 24, 39, 0.5); }
+    .testimonials-grid {
+      max-width: 1200px; margin: 0 auto;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+    .testimonial {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 1.75rem;
+    }
+    .stars { color: var(--orange); font-size: 1.1rem; margin-bottom: 1rem; letter-spacing: 2px; }
+    .testimonial blockquote {
+      font-style: italic; color: var(--text-muted);
+      margin-bottom: 1.25rem; font-size: 0.95rem;
+    }
+    .testimonial .author { font-weight: 600; }
+    .testimonial .role { font-size: 0.85rem; color: var(--text-dim); }
+
+    /* ── FOOTER ── */
+    .footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 1.5rem; text-align: center;
+      font-size: 0.85rem; color: var(--text-dim);
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .bundle-grid { grid-template-columns: 1fr; }
+      .bundle-right { margin-top: 1rem; }
+      .products-grid { grid-template-columns: 1fr; }
+      .testimonials-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <div class="logo">
+        <div class="logo-icon">FT</div>
+        Flowtech Advisory
+      </div>
+      <a href="#products" class="nav-cta">Browse Products</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">
+      <div class="hero-badge-dot"></div>
+      Built for Construction Professionals
+    </div>
+    <h1>
+      Construction Automation<br>
+      <span>Templates & Guides</span>
+    </h1>
+    <p>
+      Save hours every week with ready-to-use Power Automate workflows,
+      Excel dashboards, and step-by-step guides built specifically for
+      the construction industry.
+    </p>
+    <div class="hero-actions">
+      <a href="#products" class="btn-primary">Browse Products</a>
+      <a href="#proof" class="btn-secondary">See What Others Say</a>
+    </div>
+    <div class="stats">
+      <div><div class="stat-value">10+</div><div class="stat-label">Workflow Templates</div></div>
+      <div><div class="stat-value">80+</div><div class="stat-label">Pages of Guides</div></div>
+      <div><div class="stat-value">100%</div><div class="stat-label">Power Platform Native</div></div>
+      <div><div class="stat-value">$0</div><div class="stat-label">Extra Subscriptions</div></div>
+    </div>
+  </section>
+
+  <!-- PRODUCTS -->
+  <section class="section" id="products">
+    <div class="section-header">
+      <h2>Our <span>Products</span></h2>
+      <p>Purpose-built templates and guides for construction professionals who want to automate workflows and save hours every week.</p>
+    </div>
+    <div class="products-grid">
+
+      <!-- Product 1 -->
+      <div class="product-card">
+        <div class="product-badge">Best Seller</div>
+        <div class="product-price">$49</div>
+        <h3>Power Automate Template Pack</h3>
+        <p class="desc">10 ready-to-import workflow templates for expense claims, purchase orders, safety incidents, RFIs, and more.</p>
+        <ul class="feature-list">
+          <li>10 fully configured workflow JSON files</li>
+          <li>Scope-based error handling on every flow</li>
+          <li>Generic connection references</li>
+          <li>Detailed README with import instructions</li>
+          <li>Covers approvals, notifications, reporting</li>
+        </ul>
+        <a href="https://flowtechadvisory.gumroad.com/l/pa-template-pack" class="card-btn">Buy on Gumroad</a>
+      </div>
+
+      <!-- Product 2 -->
+      <div class="product-card">
+        <div class="product-badge">New</div>
+        <div class="product-price">$39</div>
+        <h3>Power Automate Beginner's Blueprint</h3>
+        <p class="desc">45+ page PDF course — from zero to production-ready Power Automate flows in 8 structured modules.</p>
+        <ul class="feature-list">
+          <li>8 modules: triggers to production deployment</li>
+          <li>Hands-on exercises in every module</li>
+          <li>Expression reference tables</li>
+          <li>Error handling patterns (try/catch)</li>
+          <li>ALM and Solutions best practices</li>
+        </ul>
+        <a href="https://flowtechadvisory.gumroad.com/l/pa-blueprint" class="card-btn">Buy on Gumroad</a>
+      </div>
+
+      <!-- Product 3 -->
+      <div class="product-card">
+        <div class="product-price">$29</div>
+        <h3>Construction Budget Dashboard</h3>
+        <p class="desc">Professional Excel dashboard for tracking project budgets, cost breakdowns, and variance analysis.</p>
+        <ul class="feature-list">
+          <li>Budget vs Actual charts</li>
+          <li>Monthly cost breakdown by 6 categories</li>
+          <li>Conditional formatting (green/red)</li>
+          <li>SUM formulas and percentage calculations</li>
+          <li>Print-ready professional layout</li>
+        </ul>
+        <a href="https://flowtechadvisory.gumroad.com/l/budget-dashboard" class="card-btn">Buy on Gumroad</a>
+      </div>
+
+      <!-- Product 4 -->
+      <div class="product-card">
+        <div class="product-price">$19</div>
+        <h3>Expense Claim Automation Guide</h3>
+        <p class="desc">Step-by-step guide to building an automated expense system with AI Builder receipt scanning.</p>
+        <ul class="feature-list">
+          <li>AI Builder receipt processing setup</li>
+          <li>Full flow construction walkthrough</li>
+          <li>Office Scripts integration for Excel</li>
+          <li>Approval routing by amount thresholds</li>
+          <li>Testing scenarios and deployment checklist</li>
+        </ul>
+        <a href="https://flowtechadvisory.gumroad.com/l/expense-automation" class="card-btn">Buy on Gumroad</a>
+      </div>
+
+      <!-- Product 5 -->
+      <div class="product-card">
+        <div class="product-badge">Popular</div>
+        <div class="product-price">$15</div>
+        <h3>Site Daily Runsheet Template</h3>
+        <p class="desc">A4 landscape Excel template for capturing daily site activities — personnel, equipment, safety, deliveries.</p>
+        <ul class="feature-list">
+          <li>6 structured reporting sections</li>
+          <li>Print-ready A4 landscape format</li>
+          <li>Yellow input cells for easy data entry</li>
+          <li>Auto-calculating hours and variance</li>
+          <li>Sign-off section for site manager</li>
+        </ul>
+        <a href="https://flowtechadvisory.gumroad.com/l/daily-runsheet" class="card-btn">Buy on Gumroad</a>
+      </div>
+
+    </div>
+
+    <!-- BUNDLE -->
+    <div style="padding-top: 4rem;">
+      <div class="bundle">
+        <div class="bundle-badge">Save $52</div>
+        <div class="bundle-grid">
+          <div>
+            <h3>Complete Construction Automation Bundle</h3>
+            <p class="desc">Get all 5 products in one package — 10 Power Automate workflows, the Beginner's Blueprint course, Budget Dashboard, Expense Guide, and Daily Runsheet.</p>
+            <ul class="feature-list">
+              <li>All 10 Power Automate workflow templates</li>
+              <li>45+ page Beginner's Blueprint PDF course</li>
+              <li>Construction Budget Dashboard (Excel)</li>
+              <li>Expense Claim Automation Guide (PDF)</li>
+              <li>Site Daily Runsheet Template (Excel)</li>
+            </ul>
+          </div>
+          <div class="bundle-right">
+            <div class="bundle-old-price">$151</div>
+            <div class="bundle-price">$99</div>
+            <a href="https://flowtechadvisory.gumroad.com/l/complete-bundle" class="btn-primary" style="display: inline-block; width: 100%;">Get the Bundle</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOCIAL PROOF -->
+  <section class="section proof" id="proof">
+    <div class="section-header">
+      <h2>What Our <span>Customers</span> Say</h2>
+      <p>Trusted by construction professionals across Australia.</p>
+    </div>
+    <div class="testimonials-grid">
+      <div class="testimonial">
+        <div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <blockquote>"The workflow templates saved us weeks of development time. We had our expense claim automation running within a day of purchase."</blockquote>
+        <div class="author">Sarah Mitchell</div>
+        <div class="role">Project Manager, Apex Constructions</div>
+      </div>
+      <div class="testimonial">
+        <div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <blockquote>"The Beginner's Blueprint was exactly what our team needed. Clear, practical, and focused on real construction use cases."</blockquote>
+        <div class="author">James Chen</div>
+        <div class="role">IT Coordinator, BuildRight Group</div>
+      </div>
+      <div class="testimonial">
+        <div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <blockquote>"We use the daily runsheet template on every site now. It standardised our reporting and made handovers seamless."</blockquote>
+        <div class="author">David Thompson</div>
+        <div class="role">Construction Director, Pacific Developments</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="logo" style="justify-content: center; margin-bottom: 1rem;">
+      <div class="logo-icon">FT</div>
+      Flowtech Advisory
+    </div>
+    <p>Helping construction companies automate their operations with Microsoft Power Platform.</p>
+    <p style="margin-top: 0.5rem;">Melbourne, Australia &middot; support@flowtechadvisory.com</p>
+    <p style="margin-top: 1.5rem;">&copy; 2026 Flowtech Advisory. All rights reserved.</p>
+  </footer>
+
+  <!-- Gumroad overlay checkout -->
+  <script src="https://gumroad.com/js/gumroad.js" defer></script>
+</body>
+</html>

@@ -143,17 +143,69 @@ For each product, also configure:
 - Send monthly tips about Power Automate in construction
 
 ### Bundle Discounts
-- Create a "Complete Bundle" product on Gumroad with all 5 products at a discount
+- Create a "Complete Bundle" product on Gumroad (see Product 6 below)
 - Suggested bundle price: $99 (save $52)
+
+### Product 6: Complete Construction Automation Bundle — $99
+
+1. Click "New Product"
+2. **Name:** Complete Construction Automation Bundle
+3. **Price:** $99 (original value $151 — save $52)
+4. **Description:**
+   > Get everything you need to automate your construction operations in one package.
+   >
+   > Includes all 5 Flowtech Advisory products:
+   > - Power Automate Template Pack (10 workflows) — worth $49
+   > - Power Automate Beginner's Blueprint (45+ page course) — worth $39
+   > - Construction Budget Dashboard (Excel) — worth $29
+   > - Expense Claim Automation Guide (PDF) — worth $19
+   > - Site Daily Runsheet Template (Excel) — worth $15
+   >
+   > Save $52 compared to buying individually. Perfect for teams getting started with
+   > construction automation on Microsoft 365.
+5. **File:** Upload `zips/complete-bundle.zip`
+6. **Tags:** construction, automation, power-automate, bundle, microsoft-365
+7. **Category:** Software
+
+## Step 7: Update the Showcase Landing Page
+
+After publishing all products on Gumroad, update the showcase config:
+
+1. Open `showcase/src/config/products.ts`
+2. Replace each `"https://gumroad.com/l/REPLACE_ME"` with the actual Gumroad URL
+   - You'll find the URL on each product's Gumroad page (e.g., `https://yourusername.gumroad.com/l/abc123`)
+3. Rebuild and deploy:
+   ```bash
+   cd showcase
+   npm run build
+   npx vercel --prod
+   ```
+4. Verify all "Buy on Gumroad" buttons on the live site link to the correct products
 
 ## File Checklist
 
-Before uploading, verify all files:
+Before uploading, verify all files exist and are non-empty:
 
-| Product | File | Format |
-|---|---|---|
-| Workflow Templates | `workflows/*.json` + README (ZIP) | .zip |
-| Beginner's Blueprint | `guides/power-automate-beginners-blueprint.pdf` | .pdf |
-| Budget Dashboard | `templates/construction-budget-dashboard.xlsx` | .xlsx |
-| Expense Guide | `guides/expense-claim-automation-guide.pdf` | .pdf |
-| Daily Runsheet | `templates/site-daily-runsheet.xlsx` | .xlsx |
+| Product | Upload File | Source | Format |
+|---|---|---|---|
+| Workflow Templates | `zips/power-automate-template-pack.zip` | 10 JSON + README | .zip |
+| Beginner's Blueprint | `zips/power-automate-beginners-blueprint.zip` | PDF guide | .zip |
+| Budget Dashboard | `zips/construction-budget-dashboard.zip` | Excel template | .zip |
+| Expense Guide | `zips/expense-claim-automation-guide.zip` | PDF guide | .zip |
+| Daily Runsheet | `zips/site-daily-runsheet.zip` | Excel template | .zip |
+| Complete Bundle | `zips/complete-bundle.zip` | All 5 products | .zip |
+
+## Thumbnail Checklist
+
+Each product needs a cover image (1280x720 recommended). Create these before uploading:
+
+| Product | Suggested Thumbnail |
+|---|---|
+| Template Pack | Workflow diagram with connected nodes, "10 Workflows" text |
+| Blueprint | Open book/PDF icon with "8 Modules" text |
+| Budget Dashboard | Bar chart with green/red variance, "Budget vs Actual" text |
+| Expense Guide | Receipt icon with AI scanning visual, "Automate Claims" text |
+| Daily Runsheet | Clipboard/form icon with checkmarks, "Site Reporting" text |
+| Complete Bundle | All 5 icons combined, "Save $52" badge |
+
+Use Canva or Figma with the Flowtech brand colors (dark background, orange #F97316 accents, white text).

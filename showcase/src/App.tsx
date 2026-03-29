@@ -3,6 +3,7 @@ import { Testimonials } from "./components/Testimonials";
 import { FAQ } from "./components/FAQ";
 import { Hero } from "./components/Hero";
 import { Footer } from "./components/Footer";
+import { products, bundleProduct } from "./config/products";
 
 export default function App() {
   return (
@@ -15,79 +16,6 @@ export default function App() {
     </div>
   );
 }
-
-const products = [
-  {
-    name: "Power Automate Template Pack for Construction",
-    price: "$49",
-    description:
-      "10 ready-to-import Power Automate workflow templates built specifically for construction companies. Covers expense claims, purchase orders, safety incidents, RFIs, and more.",
-    features: [
-      "10 fully configured workflow JSON files",
-      "Error handling with Scope blocks on every flow",
-      "Generic connection references (works in any environment)",
-      "Detailed README with import instructions",
-      "Covers: Approvals, Notifications, Reporting, Tracking",
-    ],
-    badge: "Best Seller",
-  },
-  {
-    name: "Power Automate Beginner's Blueprint",
-    price: "$39",
-    description:
-      "A comprehensive 45+ page PDF course that takes you from zero to building production-ready Power Automate flows in 8 structured modules.",
-    features: [
-      "8 modules covering triggers to production deployment",
-      "Hands-on exercises in every module",
-      "Expression reference tables",
-      "Error handling patterns (try/catch with Scopes)",
-      "ALM and Solutions best practices",
-    ],
-    badge: "New",
-  },
-  {
-    name: "Construction Budget Dashboard",
-    price: "$29",
-    description:
-      "Professional Excel dashboard for tracking project budgets, cost breakdowns by category, and variance analysis. Pre-built with formulas and charts.",
-    features: [
-      "Dashboard with Budget vs Actual charts",
-      "Monthly cost breakdown by 6 categories",
-      "Conditional formatting (green/red variance)",
-      "SUM formulas and percentage calculations",
-      "Print-ready with professional formatting",
-    ],
-    badge: null,
-  },
-  {
-    name: "Expense Claim Automation Guide",
-    price: "$19",
-    description:
-      "Step-by-step guide to building an automated expense claim system using Power Automate, AI Builder for receipt scanning, and Excel reporting.",
-    features: [
-      "AI Builder receipt processing setup",
-      "Full flow construction walkthrough",
-      "Office Scripts integration for Excel",
-      "Approval routing by amount thresholds",
-      "Testing scenarios and deployment checklist",
-    ],
-    badge: null,
-  },
-  {
-    name: "Site Daily Runsheet Template",
-    price: "$15",
-    description:
-      "Professional A4 landscape Excel template for capturing daily site activities. Covers personnel, equipment, work completed, safety, delays, and deliveries.",
-    features: [
-      "6 structured sections for complete daily reporting",
-      "Print-ready A4 landscape format",
-      "Yellow input cells for easy data entry",
-      "Auto-calculating hours and variance formulas",
-      "Sign-off section for site manager",
-    ],
-    badge: "Popular",
-  },
-];
 
 function Products() {
   return (
@@ -102,8 +30,50 @@ function Products() {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {products.map((product) => (
-            <ProductCard key={product.name} {...product} />
+            <ProductCard key={product.id} {...product} />
           ))}
+        </div>
+
+        {/* Bundle CTA */}
+        <div className="mt-16 relative bg-gradient-to-r from-orange-500/10 via-orange-500/5 to-orange-500/10 border border-orange-500/30 rounded-2xl p-8 md:p-12">
+          <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-sm font-bold px-5 py-1.5 rounded-full">
+            Save ${bundleProduct.originalPrice && bundleProduct.price ? parseInt(bundleProduct.originalPrice.replace('$', '')) - parseInt(bundleProduct.price.replace('$', '')) : 70}
+          </div>
+          <div className="grid md:grid-cols-2 gap-8 items-center">
+            <div>
+              <h3 className="text-2xl md:text-3xl font-bold text-white mb-3">
+                {bundleProduct.name}
+              </h3>
+              <p className="text-gray-400 mb-4">{bundleProduct.description}</p>
+              <ul className="space-y-2">
+                {bundleProduct.features.map((feature) => (
+                  <li key={feature} className="flex items-center gap-2 text-sm text-gray-300">
+                    <svg className="w-4 h-4 text-orange-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="text-center">
+              {bundleProduct.originalPrice && (
+                <div className="mb-2">
+                  <span className="text-lg text-gray-500 line-through">{bundleProduct.originalPrice}</span>
+                </div>
+              )}
+              <div className="text-5xl font-bold text-orange-500 mb-6">{bundleProduct.price}</div>
+              <a
+                href={bundleProduct.gumroadUrl}
+                className="gumroad-button inline-flex items-center justify-center gap-2 px-10 py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold text-lg rounded-lg transition-all duration-200 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40"
+              >
+                Get the Bundle
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </section>
